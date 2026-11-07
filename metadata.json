@@ -1,0 +1,7 @@
+{
+  "name": "Smart Library QR-Based Research Registration & Session Management System",
+  "description": "Enterprise university library management system featuring permanent static QR codes for registration and login, automatic 24-hour cycle tracking in Asia/Kolkata timezone, live session timers, research document vault, and comprehensive administrative analytics.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
