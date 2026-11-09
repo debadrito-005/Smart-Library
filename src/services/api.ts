@@ -12,14 +12,34 @@ import {
   AppSettings,
   CommunicationStatus,
 } from '../types';
+import { localEngine } from './localEngine';
 
 const BASE_URL = '/api';
 
+// Helper to safely parse JSON or detect static hosting / 404 HTML fallback
+async function safeFetchJson<T>(url: string, options?: RequestInit): Promise<T | null> {
+  try {
+    const res = await fetch(url, options);
+    // If not OK or HTML returned (Vercel SPA fallback), return null to trigger localEngine
+    if (!res.ok) return null;
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) return null;
+    const data = await res.json();
+    return data;
+  } catch (e) {
+    return null;
+  }
+}
+
 export const api = {
-  // QR CODES
+  // QR CODES (Permanent Static)
   async getQrCodes(): Promise<QrCodesResponse> {
-    const res = await fetch(`${BASE_URL}/qr/codes`);
-    return res.json();
+    const remote = await safeFetchJson<QrCodesResponse>(`${BASE_URL}/qr/codes`);
+    if (remote && remote.success && remote.qr1 && remote.qr2) {
+      return remote;
+    }
+    // Fallback: Generate high-res static QR codes client-side
+    return localEngine.getQrCodes();
   },
 
   // USERS & REGISTRATION
@@ -30,12 +50,16 @@ export const api = {
     email?: string;
     contactNumber?: string;
   }): Promise<{ success: boolean; message: string; registrationId: string; user: User }> {
-    const res = await fetch(`${BASE_URL}/users/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(userData),
-    });
-    return res.json();
+    const remote = await safeFetchJson<{ success: boolean; message: string; registrationId: string; user: User }>(
+      `${BASE_URL}/users/register`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(userData),
+      }
+    );
+    if (remote && remote.success) return remote;
+    return localEngine.registerUser(userData);
   },
 
   async lookupUser(registrationId: string): Promise<{
@@ -50,8 +74,11 @@ export const api = {
     };
     message?: string;
   }> {
-    const res = await fetch(`${BASE_URL}/users/lookup/${encodeURIComponent(registrationId.trim())}`);
-    return res.json();
+    const remote = await safeFetchJson<any>(
+      `${BASE_URL}/users/lookup/${encodeURIComponent(registrationId.trim())}`
+    );
+    if (remote && remote.success) return remote;
+    return localEngine.lookupUser(registrationId);
   },
 
   async getUsers(params?: { search?: string; department?: string; position?: string }): Promise<{
@@ -63,8 +90,9 @@ export const api = {
     if (params?.search) query.set('search', params.search);
     if (params?.department) query.set('department', params.department);
     if (params?.position) query.set('position', params.position);
-    const res = await fetch(`${BASE_URL}/users?${query.toString()}`);
-    return res.json();
+    const remote = await safeFetchJson<any>(`${BASE_URL}/users?${query.toString()}`);
+    if (remote && remote.success) return remote;
+    return localEngine.getUsers(params);
   },
 
   getUsersExportUrl(): string {
@@ -85,12 +113,13 @@ export const api = {
     remainingSeconds?: number;
     serverTime?: string;
   }> {
-    const res = await fetch(`${BASE_URL}/sessions/start`, {
+    const remote = await safeFetchJson<any>(`${BASE_URL}/sessions/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    return res.json();
+    if (remote && remote.success) return remote;
+    return localEngine.startSession(payload);
   },
 
   async endSession(payload: { sessionId?: string; registrationId?: string }): Promise<{
@@ -98,12 +127,13 @@ export const api = {
     message: string;
     session?: LibrarySession;
   }> {
-    const res = await fetch(`${BASE_URL}/sessions/end`, {
+    const remote = await safeFetchJson<any>(`${BASE_URL}/sessions/end`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    return res.json();
+    if (remote && remote.success) return remote;
+    return localEngine.endSession(payload);
   },
 
   async getCurrentSession(registrationId: string): Promise<{
@@ -114,8 +144,11 @@ export const api = {
     elapsedMinutes?: number;
     serverTime?: string;
   }> {
-    const res = await fetch(`${BASE_URL}/sessions/current/${encodeURIComponent(registrationId.trim())}`);
-    return res.json();
+    const remote = await safeFetchJson<any>(
+      `${BASE_URL}/sessions/current/${encodeURIComponent(registrationId.trim())}`
+    );
+    if (remote && remote.success) return remote;
+    return localEngine.getCurrentSession(registrationId);
   },
 
   async getActiveSessions(): Promise<{
@@ -125,8 +158,9 @@ export const api = {
     serverTime: string;
     serverTimeIST: string;
   }> {
-    const res = await fetch(`${BASE_URL}/sessions/active`);
-    return res.json();
+    const remote = await safeFetchJson<any>(`${BASE_URL}/sessions/active`);
+    if (remote && remote.success) return remote;
+    return localEngine.getActiveSessions();
   },
 
   async getSessionHistory(params?: { status?: string; department?: string; search?: string }): Promise<{
@@ -138,8 +172,9 @@ export const api = {
     if (params?.status) query.set('status', params.status);
     if (params?.department) query.set('department', params.department);
     if (params?.search) query.set('search', params.search);
-    const res = await fetch(`${BASE_URL}/sessions/history?${query.toString()}`);
-    return res.json();
+    const remote = await safeFetchJson<any>(`${BASE_URL}/sessions/history?${query.toString()}`);
+    if (remote && remote.success) return remote;
+    return localEngine.getSessionHistory(params);
   },
 
   // RESEARCH PAPERS
@@ -153,16 +188,18 @@ export const api = {
     if (params?.communicationStatus) query.set('communicationStatus', params.communicationStatus);
     if (params?.department) query.set('department', params.department);
     if (params?.search) query.set('search', params.search);
-    const res = await fetch(`${BASE_URL}/research/papers?${query.toString()}`);
-    return res.json();
+    const remote = await safeFetchJson<any>(`${BASE_URL}/research/papers?${query.toString()}`);
+    if (remote && remote.success) return remote;
+    return localEngine.getResearchPapers(params);
   },
 
   async uploadResearchPaper(formData: FormData): Promise<{ success: boolean; message: string; paper?: ResearchPaper }> {
-    const res = await fetch(`${BASE_URL}/research/papers`, {
+    const remote = await safeFetchJson<any>(`${BASE_URL}/research/papers`, {
       method: 'POST',
       body: formData,
     });
-    return res.json();
+    if (remote && remote.success) return remote;
+    return localEngine.uploadResearchPaper(formData);
   },
 
   async updatePaperCommunicationStatus(
@@ -175,17 +212,19 @@ export const api = {
       publicationStatus?: string;
     }
   ): Promise<{ success: boolean; message: string; paper?: ResearchPaper }> {
-    const res = await fetch(`${BASE_URL}/research/papers/${id}/communication-status`, {
+    const remote = await safeFetchJson<any>(`${BASE_URL}/research/papers/${id}/communication-status`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    return res.json();
+    if (remote && remote.success) return remote;
+    return localEngine.updatePaperCommunicationStatus(id, payload);
   },
 
   async deleteResearchPaper(id: string): Promise<{ success: boolean; message: string }> {
-    const res = await fetch(`${BASE_URL}/research/papers/${id}`, { method: 'DELETE' });
-    return res.json();
+    const remote = await safeFetchJson<any>(`${BASE_URL}/research/papers/${id}`, { method: 'DELETE' });
+    if (remote && remote.success) return remote;
+    return localEngine.deleteResearchPaper(id);
   },
 
   // PROJECT REPORTS
@@ -198,21 +237,24 @@ export const api = {
     const query = new URLSearchParams();
     if (params?.department) query.set('department', params.department);
     if (params?.search) query.set('search', params.search);
-    const res = await fetch(`${BASE_URL}/research/projects?${query.toString()}`);
-    return res.json();
+    const remote = await safeFetchJson<any>(`${BASE_URL}/research/projects?${query.toString()}`);
+    if (remote && remote.success) return remote;
+    return localEngine.getProjectReports(params);
   },
 
   async uploadProjectReport(formData: FormData): Promise<{ success: boolean; message: string; project?: ProjectReport }> {
-    const res = await fetch(`${BASE_URL}/research/projects`, {
+    const remote = await safeFetchJson<any>(`${BASE_URL}/research/projects`, {
       method: 'POST',
       body: formData,
     });
-    return res.json();
+    if (remote && remote.success) return remote;
+    return localEngine.uploadProjectReport(formData);
   },
 
   async deleteProjectReport(id: string): Promise<{ success: boolean; message: string }> {
-    const res = await fetch(`${BASE_URL}/research/projects/${id}`, { method: 'DELETE' });
-    return res.json();
+    const remote = await safeFetchJson<any>(`${BASE_URL}/research/projects/${id}`, { method: 'DELETE' });
+    if (remote && remote.success) return remote;
+    return localEngine.deleteProjectReport(id);
   },
 
   // PPT PRESENTATIONS
@@ -225,32 +267,37 @@ export const api = {
     const query = new URLSearchParams();
     if (params?.department) query.set('department', params.department);
     if (params?.search) query.set('search', params.search);
-    const res = await fetch(`${BASE_URL}/research/presentations?${query.toString()}`);
-    return res.json();
+    const remote = await safeFetchJson<any>(`${BASE_URL}/research/presentations?${query.toString()}`);
+    if (remote && remote.success) return remote;
+    return localEngine.getPresentations(params);
   },
 
   async uploadPresentation(formData: FormData): Promise<{ success: boolean; message: string; presentation?: Presentation }> {
-    const res = await fetch(`${BASE_URL}/research/presentations`, {
+    const remote = await safeFetchJson<any>(`${BASE_URL}/research/presentations`, {
       method: 'POST',
       body: formData,
     });
-    return res.json();
+    if (remote && remote.success) return remote;
+    return localEngine.uploadPresentation(formData);
   },
 
   async deletePresentation(id: string): Promise<{ success: boolean; message: string }> {
-    const res = await fetch(`${BASE_URL}/research/presentations/${id}`, { method: 'DELETE' });
-    return res.json();
+    const remote = await safeFetchJson<any>(`${BASE_URL}/research/presentations/${id}`, { method: 'DELETE' });
+    if (remote && remote.success) return remote;
+    return localEngine.deletePresentation(id);
   },
 
   // DASHBOARD & ADMIN
   async getDashboardStats(): Promise<{ success: boolean } & DashboardStats> {
-    const res = await fetch(`${BASE_URL}/admin/stats`);
-    return res.json();
+    const remote = await safeFetchJson<{ success: boolean } & DashboardStats>(`${BASE_URL}/admin/stats`);
+    if (remote && remote.success && remote.kpis) return remote;
+    return localEngine.getDashboardStats();
   },
 
   async getCycleReport(): Promise<{ success: boolean; cycle: CycleStatusReport }> {
-    const res = await fetch(`${BASE_URL}/cycle-status`);
-    return res.json();
+    const remote = await safeFetchJson<{ success: boolean; cycle: CycleStatusReport }>(`${BASE_URL}/cycle-status`);
+    if (remote && remote.success && remote.cycle) return remote;
+    return localEngine.getCycleReport();
   },
 
   async getCycleHistory(): Promise<{
@@ -258,40 +305,46 @@ export const api = {
     cycles: RegistrationCycle[];
     activeCycle?: RegistrationCycle;
   }> {
-    const res = await fetch(`${BASE_URL}/admin/cycles/history`);
-    return res.json();
+    const remote = await safeFetchJson<any>(`${BASE_URL}/admin/cycles/history`);
+    if (remote && remote.success) return remote;
+    return localEngine.getCycleHistory();
   },
 
   async rolloverCycle(): Promise<{ success: boolean; message: string; cycle: CycleStatusReport }> {
-    const res = await fetch(`${BASE_URL}/admin/cycles/rollover`, { method: 'POST' });
-    return res.json();
+    const remote = await safeFetchJson<any>(`${BASE_URL}/admin/cycles/rollover`, { method: 'POST' });
+    if (remote && remote.success) return remote;
+    return localEngine.rolloverCycle();
   },
 
   async adminLogin(username: string, password: string): Promise<{ success: boolean; token?: string; message?: string; admin?: any }> {
-    const res = await fetch(`${BASE_URL}/admin/login`, {
+    const remote = await safeFetchJson<any>(`${BASE_URL}/admin/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
     });
-    return res.json();
+    if (remote && remote.success) return remote;
+    return localEngine.adminLogin(username, password);
   },
 
   async getActivityLogs(): Promise<{ success: boolean; logs: ActivityLog[] }> {
-    const res = await fetch(`${BASE_URL}/admin/logs`);
-    return res.json();
+    const remote = await safeFetchJson<any>(`${BASE_URL}/admin/logs`);
+    if (remote && remote.success) return remote;
+    return { success: true, logs: [] };
   },
 
   async getSettings(): Promise<{ success: boolean; settings: AppSettings }> {
-    const res = await fetch(`${BASE_URL}/admin/settings`);
-    return res.json();
+    const remote = await safeFetchJson<any>(`${BASE_URL}/admin/settings`);
+    if (remote && remote.success) return remote;
+    return localEngine.getSettings();
   },
 
   async updateSettings(settings: Partial<AppSettings>): Promise<{ success: boolean; settings: AppSettings }> {
-    const res = await fetch(`${BASE_URL}/admin/settings`, {
+    const remote = await safeFetchJson<any>(`${BASE_URL}/admin/settings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings),
     });
-    return res.json();
+    if (remote && remote.success) return remote;
+    return localEngine.updateSettings(settings);
   },
 };
